@@ -27,7 +27,7 @@ contract EagerNFT {
 }
 ```
 
-This `mint` function can only be called by the contract owner. This is a simple form of access control; a real-world contract may use something more sophisticated, like allowing anyone with a "minter" role to call the `mint` function. This restriction lets us ensure that only the artist themselves can create a new NFT. This is an important feature we need to keep for lazy minting.
+This `mint` function can only be called by the contract owner. This is a simple form of access control. A real-world contract may use something more sophisticated, like allowing anyone with a "minter" role to call the `mint` function. This restriction lets us ensure that only the artist themselves can create a new NFT. This is an important feature we need to keep for lazy minting.
 
 In the lazy minting pattern, we need to change things a bit:
 
@@ -38,7 +38,7 @@ contract LazyNFT {
   function redeem(address buyer, uint256 tokenId, string calldata tokenURI, bytes32 signature) {
     address signer = _verify(tokenId, tokenURI, signature);
     require(signer == owner, "Invalid signature - unknown signer");
-    
+
     // minting logic...
   }
 
@@ -52,5 +52,5 @@ We'll get to the actual minting logic in a second. First, notice that the access
 
 We've also added a new parameter, `signature`. This is the key to lazy minting, so we'll go into how it's produced in detail below. For now, we can think of the signature as a "ticket" that a buyer can redeem for an NFT.
 
-The signature serves two important purposes. First, the signature lets us validate the contents of the NFT, namely the `tokenId` and `tokenURI`, to prove that the NFT creator really did want to create an NFT with this exact content. Second, validating the signature also produces the public key and address of the account that created the signature. Once we have that, we can make sure that it really was the NFT creator that produced the signature and not some impostor.
+The signature serves two important purposes. First, we can use the signature to validate the contents of the NFT, to prove that the NFT creator really did want to create a token with this exact content. Second, validating the signature also produces the public key and address of the account that created the signature. Once we have that, we can make sure that it really was the NFT creator that produced the signature and not some impostor.
 
