@@ -84,9 +84,6 @@ contract LazyNFT {
 }
 ```
 
-We'll get to the actual minting logic in a second. First, notice that we have a new `struct` named `NFTVoucher`. An `NFTVoucher` represents an un-minted NFT which hasn't yet been recorded. To turn it into a real NFT, a buyer can call the `redeem` function and pass in a voucher, plus a signature of the voucher that's been prepared by the NFT creator.
+We'll get to the signatures and minting logic in a second. First, notice that we have a new `struct` named `NFTVoucher`. An `NFTVoucher` represents an un-minted NFT which hasn't yet been recorded. To turn it into a real NFT, a buyer can call the `redeem` function and pass in a voucher, plus a signature of the voucher that's been prepared by the NFT creator.
 
 This contract still has role-based access controls, but we've changed things up a bit. Instead of checking that `msg.sender` is an authorized minter, we allow anyone to call the `redeem` function. The access controls are used to make sure that the signature was produced by someone authorized to mint NFTs. This works because verifying an Ethereum signature returns the address of the signer, so we can validate the voucher and learn who created it in one operation.
-
-
-
