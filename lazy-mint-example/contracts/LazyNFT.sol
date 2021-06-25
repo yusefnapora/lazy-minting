@@ -6,23 +6,19 @@ import "hardhat/console.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
 
 contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
-  using Counters for Counters.Counter;
-  Counters.Counter private _tokenIds;
-
   bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
-  constructor(address minter)
+  constructor(address payable minter)
     ERC721("LazyNFT", "LAZ") 
     EIP712("LazyNFT-Voucher", "1") {
       _setupRole(MINTER_ROLE, minter);
     }
 
-  /// @notice Represents an un-minted NFT, which has not yet been recorded into the blockchain. A signed voucher can be redeemed for a real NFT in the redeem function.
+  /// @notice Represents an un-minted NFT, which has not yet been recorded into the blockchain. A signed voucher can be redeemed for a real NFT using the redeem function.
   struct NFTVoucher {
     /// @notice The id of the token to be redeemed. Must be unique - if another token with this ID already exists, the redeem function will revert.
     uint256 tokenId;
@@ -56,14 +52,25 @@ contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
     // transfer to the redeemer
     _transfer(signer, redeemer, voucher.tokenId);
 
-    // send purchase cost to the minter's account. If you want, you can take a % for the platform, etc.
-    signer.transfer(msg.value);
+    // send purchase cost to the minter's account.
+
+    // IMPORTANT: we're explicitly casting the signer address to a payable address. 
+    // This is only safe to do if you ensure that ALL addresses with the MINTER_ROLE are in fact payable (can receive Ether).
+    // In our case, there's only one place to assign minters at the moment (the constructor), and its `minter` parameter is
+    // marked as payable. Since we've already verified that the `signer` address has the minter role, and all minters must be payable,
+    // we know it's safe to do this cast.
+    // If you add a new function to add new minters, make sure to only accept `address payable`, not just `address`!
+    address payable creator = payable(signer);
+    creator.transfer(msg.value);
 
     return voucher.tokenId;
   }
 
+  /// @dev The hash of the ABI signature for the typed data that we're signing. Used for EIP712 signatures.
   bytes32 constant _voucherSignatureABI = keccak256("NFTVoucher(uint256 tokenId,uint256 minPrice,string uri))");
 
+  /// @notice Returns a hash of the given NFTVoucher, prepared using EIP712 typed data hashing rules.
+  /// @param voucher An NFTVoucher to hash.
   function _hash(NFTVoucher calldata voucher) internal view returns (bytes32) {
     return _hashTypedDataV4(keccak256(abi.encode(
       _voucherSignatureABI,
@@ -73,6 +80,10 @@ contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
     )));
   }
 
+  /// @notice Verifies the signature for a given NFTVoucher, returning the address of the signer.
+  /// @dev Will revert if the signature is invalid. Does not verify that the signer is authorized to mint NFTs.
+  /// @param voucher An NFTVoucher describing an unminted NFT.
+  /// @param signature An EIP712 signature of the given voucher.
   function _verify(NFTVoucher calldata voucher, bytes memory signature) internal view returns (address) {
     bytes32 digest = _hash(voucher);
     return ECDSA.recover(digest, signature);
