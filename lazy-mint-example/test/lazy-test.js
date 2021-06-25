@@ -8,7 +8,7 @@ async function deploy() {
   let factory = await ethers.getContractFactory("LazyNFT", minter)
   const contract = await factory.deploy(minter.address)
 
-  // the redeemer 
+  // the redeemerContract is an instance of the contract that's wired up to the redeemer's signing key
   const redeemerFactory = factory.connect(redeemer)
   const redeemerContract = redeemerFactory.attach(contract.address)
 
@@ -60,6 +60,19 @@ describe("LazyNFT", function() {
       .to.be.revertedWith('ERC721: token already minted')
   });
 
+  it("Should fail to redeem an NFT voucher that's signed by an unauthorized account", async function() {
+    const { contract, redeemerContract, redeemer, minter } = await deploy()
+
+    const signers = await ethers.getSigners()
+    const rando = signers[signers.length-1];
+    
+    const lazyMinter = new LazyMinter({ contractAddress: contract.address, signer: rando })
+    const { voucher, signature } = await lazyMinter.createVoucher(1, "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi")
+
+    await expect(redeemerContract.redeem(redeemer.address, voucher, signature))
+      .to.be.revertedWith('Signature was not produced by authorized minter')
+  });
+
   it("Should redeem if payment is >= minPrice", async function() {
     const { contract, redeemerContract, redeemer, minter } = await deploy()
 
@@ -88,6 +101,8 @@ describe("LazyNFT", function() {
 
     await expect(await contract.withdraw())
       .to.changeEtherBalance(minter, minPrice)
+
+    expect(await contract.availableToWithdraw()).to.equal(0)
   })
 
   it("Should fail to redeem if payment is < minPrice", async function() {
