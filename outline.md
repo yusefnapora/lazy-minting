@@ -10,47 +10,83 @@ Minting "just in time" at the moment of purchase is often called _lazy minting_,
 
 This guide will show how lazy minting works on Ethereum, using some helper libraries from [OpenZeppelin](https://openzeppelin.org).
 
-## High-level overview
+## Overview
 
-For lazy minting to work, we need a smart contract function that the NFT buyer can call that will both mint the NFT they want, and assign it to their account, all in one transaction.
+For lazy minting to work, we need a smart contract function that the NFT buyer can call that will both mint the NFT they want and assign it to their account, all in one transaction.
 
 Before we get started, let's look at a _non-lazy_ minting function:
 
 ```solidity
-contract EagerNFT {
-  address owner;
+pragma solidity ^0.8.0;
 
-  function mint(address buyer, uint256 tokenId, string tokenURI) {
-    require(message.sender == owner, "Only the contract owner can mint an NFT!");
-    // minting logic...
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+
+contract EagerNFT is ERC721URIStorage, AccessControl {
+  using Counters for Counters.Counter;
+  Counters.Counter _tokenIds;
+
+  bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+
+  constructor(address minter)
+    ERC721("EagerNFT", "EGR") {
+      _setupRole(MINTER_ROLE, minter);
+    }
+
+  function mint(address buyer, string tokenURI) {
+    require(hasRole(MINTER_ROLE, msg.sender), "Unauthorized");
+    
+    // minting logic
+    _tokenIds.increment();
+    uint256 tokenId = _tokenIds.current();
+    _mint(buyer, tokenId);
+    _setTokenURI(tokenId, tokenURI);
   }
 }
 ```
 
-This `mint` function can only be called by the contract owner. This is a simple form of access control. A real-world contract may use something more sophisticated, like allowing anyone with a "minter" role to call the `mint` function. This restriction lets us ensure that only the artist themselves can create a new NFT. This is an important feature we need to keep for lazy minting.
+This contract builds on the [OpenZeppelin ERC721 base contract](https://docs.openzeppelin.com/contracts/4.x/erc721), adding role-based [Access Control](https://docs.openzeppelin.com/contracts/4.x/access-control).
+
+In the `mint` function, we require that the caller has the `MINTER_ROLE`, ensuring that only authorized minters can create new NFTs.
 
 In the lazy minting pattern, we need to change things a bit:
 
 ```solidity
-contract LazyNFT {
-  address owner;
+pragma solidity ^0.8.0;
+pragma experimental ABIEncoderV2;
 
-  function redeem(address buyer, uint256 tokenId, string calldata tokenURI, bytes32 signature) {
-    address signer = _verify(tokenId, tokenURI, signature);
-    require(signer == owner, "Invalid signature - unknown signer");
+contract LazyNFT {
+  bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+
+  constructor(address minter)
+    ERC721("LazyNFT", "LAZ") {
+      _setupRole(MINTER_ROLE, minter);
+    }
+
+  struct NFTVoucher {
+    uint256 tokenId;
+    uint256 minPrice;
+    string uri;
+  }
+
+  function redeem(address redeemer, NFTVoucher calldata voucher, bytes memory signature) public payable {
+    address signer = _verify(voucher, signature);
+    require(hasRole(MINTER_ROLE, signer), "Invalid signature - unknown signer");
 
     // minting logic...
   }
 
-  function _verify(uint256 tokenId, string calldata tokenURI, bytes32 signature) private returns (address signer) {
+  function _verify(NFTVoucher voucher, bytes memory signature) private returns (address signer) {
     // verify signature against input and recover address, or revert transaction if signature is invalid
   }
 }
 ```
 
-We'll get to the actual minting logic in a second. First, notice that the access control has been removed. Anyone can call our `redeem` function, which makes sense, since we want the buyer to call this function, and we want to allow anyone to buy an NFT.
+We'll get to the actual minting logic in a second. First, notice that we have a new `struct` named `NFTVoucher`. An `NFTVoucher` represents an un-minted NFT which hasn't yet been recorded. To turn it into a real NFT, a buyer can call the `redeem` function and pass in a voucher, plus a signature of the voucher that's been prepared by the NFT creator.
 
-We've also added a new parameter, `signature`. This is the key to lazy minting, so we'll go into how it's produced in detail below. For now, we can think of the signature as a "ticket" that a buyer can redeem for an NFT.
+This contract still has role-based access controls, but we've changed things up a bit. Instead of checking that `msg.sender` is an authorized minter, we allow anyone to call the `redeem` function. The access controls are used to make sure that the signature was produced by someone authorized to mint NFTs. This works because verifying an Ethereum signature returns the address of the signer, so we can validate the voucher and learn who created it in one operation.
 
-The signature serves two important purposes. First, we can use the signature to validate the contents of the NFT, to prove that the NFT creator really did want to create a token with this exact content. Second, validating the signature also produces the public key and address of the account that created the signature. Once we have that, we can make sure that it really was the NFT creator that produced the signature and not some impostor.
+
 
