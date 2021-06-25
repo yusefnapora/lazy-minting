@@ -10,7 +10,11 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/draft-EIP712.sol";
 
 contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
+  using ECDSA for bytes32;
+
   bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
+
+  mapping (address => uint256) pendingWithdrawals;
 
   constructor(address payable minter)
     ERC721("LazyNFT", "LAZ") 
@@ -49,34 +53,42 @@ contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
     _mint(signer, voucher.tokenId);
     _setTokenURI(voucher.tokenId, voucher.uri);
     
-    // transfer to the redeemer
+    // transfer the token to the redeemer
     _transfer(signer, redeemer, voucher.tokenId);
 
-    // send purchase cost to the minter's account.
-
-    // IMPORTANT: we're explicitly casting the signer address to a payable address. 
-    // This is only safe to do if you ensure that ALL addresses with the MINTER_ROLE are in fact payable (can receive Ether).
-    // In our case, there's only one place to assign minters at the moment (the constructor), and its `minter` parameter is
-    // marked as payable. Since we've already verified that the `signer` address has the minter role, and all minters must be payable,
-    // we know it's safe to do this cast.
-    // If you add a new function to add new minters, make sure to only accept `address payable`, not just `address`!
-    address payable creator = payable(signer);
-    creator.transfer(msg.value);
+    // record payment to signer's withdrawal balance
+    pendingWithdrawals[signer] += msg.value;
 
     return voucher.tokenId;
   }
 
+  function withdraw() public {
+    require(hasRole(MINTER_ROLE, msg.sender), "Only authorized minters can withdraw");
+    
+    // IMPORTANT: casting msg.sender to a payable address is only safe if ALL members of the minter role are payable addresses.
+    address payable receiver = payable(msg.sender);
+
+    uint amount = pendingWithdrawals[receiver];
+    // zero account before transfer to prevent re-entrancy attack
+    pendingWithdrawals[receiver] = 0;
+    receiver.transfer(amount);
+  }
+
+  function availableToWithdraw() public view returns (uint256) {
+    return pendingWithdrawals[msg.sender];
+  }
+
   /// @dev The hash of the ABI signature for the typed data that we're signing. Used for EIP712 signatures.
-  bytes32 constant _voucherSignatureABI = keccak256("NFTVoucher(uint256 tokenId,uint256 minPrice,string uri))");
+  // bytes32 constant _voucherSignatureABI = keccak256("NFTVoucher(uint256 tokenId,uint256 minPrice,string uri)");
 
   /// @notice Returns a hash of the given NFTVoucher, prepared using EIP712 typed data hashing rules.
   /// @param voucher An NFTVoucher to hash.
   function _hash(NFTVoucher calldata voucher) internal view returns (bytes32) {
     return _hashTypedDataV4(keccak256(abi.encode(
-      _voucherSignatureABI,
+      keccak256("NFTVoucher(uint256 tokenId,uint256 minPrice,string uri)"),
       voucher.tokenId,
       voucher.minPrice,
-      bytes(voucher.uri)
+      keccak256(bytes(voucher.uri))
     )));
   }
 
@@ -86,7 +98,7 @@ contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
   /// @param signature An EIP712 signature of the given voucher.
   function _verify(NFTVoucher calldata voucher, bytes memory signature) internal view returns (address) {
     bytes32 digest = _hash(voucher);
-    return ECDSA.recover(digest, signature);
+    return digest.toEthSignedMessageHash().recover(signature);
   }
 
   function supportsInterface(bytes4 interfaceId) public view virtual override (AccessControl, ERC721) returns (bool) {
