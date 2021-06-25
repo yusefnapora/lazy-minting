@@ -94,14 +94,18 @@ describe("LazyNFT", function() {
     const minPrice = ethers.constants.WeiPerEther // charge 1 Eth
     const { voucher, signature } = await lazyMinter.createVoucher(1, "ipfs://bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi", minPrice)
     
+    // the payment should be sent from the redeemer's account to the contract address
     await expect(await redeemerContract.redeem(redeemer.address, voucher, signature, { value: minPrice }))
-      .to.changeEtherBalances([redeemer, contract], [minPrice.mul(-1), minPrice]) // the payment should be sent to the contract address
+      .to.changeEtherBalances([redeemer, contract], [minPrice.mul(-1), minPrice]) 
 
+    // minter should have funds available to withdraw
     expect(await contract.availableToWithdraw()).to.equal(minPrice)
 
+    // withdrawal should increase minter's balance
     await expect(await contract.withdraw())
       .to.changeEtherBalance(minter, minPrice)
 
+    // minter should now have zero available
     expect(await contract.availableToWithdraw()).to.equal(0)
   })
 
