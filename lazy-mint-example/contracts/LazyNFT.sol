@@ -78,9 +78,6 @@ contract LazyNFT is ERC721URIStorage, EIP712, AccessControl {
     return pendingWithdrawals[msg.sender];
   }
 
-  /// @dev The hash of the ABI signature for the typed data that we're signing. Used for EIP712 signatures.
-  // bytes32 constant _voucherSignatureABI = keccak256("NFTVoucher(uint256 tokenId,uint256 minPrice,string uri)");
-
   /// @notice Returns a hash of the given NFTVoucher, prepared using EIP712 typed data hashing rules.
   /// @param voucher An NFTVoucher to hash.
   function _hash(NFTVoucher calldata voucher) internal view returns (bytes32) {
